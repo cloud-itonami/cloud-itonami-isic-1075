@@ -1,0 +1,12 @@
+{:itonami.blueprint/id "cloud-itonami-1075"
+ :itonami.blueprint/name "Prepared Meals and Dishes Manufacturing Coordination"
+ :itonami.blueprint/isic-rev5 "1075"
+ :itonami.blueprint/domain :food/prepared-meals-dishes-manufacturing
+ :itonami.blueprint/license "AGPL-3.0-or-later"
+ :itonami.blueprint/social-impact [:food-security :food-safety :fair-labor]
+ :itonami.blueprint/governor :mealops-governor
+ :itonami.blueprint/robotics true
+ :itonami.blueprint/required-technologies [:identity :forms :audit-ledger :cae]
+ :itonami.blueprint/optional-technologies [:telemetry]
+ :itonami.blueprint/status :public-oss
+ :itonami.blueprint/maturity :blueprint}
