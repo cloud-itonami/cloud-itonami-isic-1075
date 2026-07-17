@@ -34,6 +34,27 @@
   (testing "nonexistent product type returns nil"
     (is (nil? (facts/product-type-by-id :meal/nonexistent)))))
 
+;; ──────────────── UNSPSC / GTIN Classification Fields ──────────────
+
+(deftest product-type-unspsc-and-gtin-test
+  (testing "chilled (cook-chill) product types use UNSPSC 'Fresh Combination Meals'"
+    (doseq [id [:meal/cook-chill-poultry :meal/cook-chill-beef :meal/cook-chill-vegetarian]]
+      (let [p (facts/product-type-by-id id)]
+        (is (= "50192701" (:unspsc-code p)) (str id " should cite the fresh-combination-meals commodity")))))
+
+  (testing "frozen (cook-freeze) product type uses UNSPSC 'Frozen combination meals'"
+    (let [p (facts/product-type-by-id :meal/cook-freeze-fish)]
+      (is (= "50192702" (:unspsc-code p)))))
+
+  (testing "every product type carries a distinct placeholder GTIN, explicitly flagged as never issued"
+    (let [ids [:meal/cook-chill-poultry :meal/cook-chill-beef :meal/cook-freeze-fish :meal/cook-chill-vegetarian]
+          gtins (map #(:gtin (facts/product-type-by-id %)) ids)]
+      (is (every? string? gtins))
+      (is (= (count gtins) (count (set gtins))) "no two product types share a placeholder GTIN")
+      (doseq [id ids]
+        (is (= :unissued-blueprint-placeholder (:gtin/status (facts/product-type-by-id id)))
+            (str id " GTIN must be flagged as a never-issued placeholder"))))))
+
 ;; ──────────────────────── Jurisdiction Lookups ──────────────────────
 
 (deftest jurisdiction-by-id-test

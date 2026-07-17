@@ -33,7 +33,36 @@
   sufficiently LOW pH is one of the recognised secondary controls
   against non-proteolytic Clostridium botulinum growth (UK FSA / Health
   Canada REPFED guidance), so a batch with pH ABOVE the product's
-  ceiling is under-acidified and therefore a violation."
+  ceiling is under-acidified and therefore a violation.
+
+  `:unspsc-code` is an 8-digit UNSPSC (United Nations Standard Products
+  and Services Code) COMMODITY code, reported HONESTLY per this
+  fleet's anti-fabrication discipline (see superproject `90-docs/adr/`
+  UNSPSC/GTIN-linkage ADR): UNSPSC family 50190000 ('Prepared and
+  preserved foods') -> class 501927 ('Packaged combination meals') has
+  two confirmed sibling commodities, `50192701` ('Fresh Combination
+  Meals') and `50192702` ('Frozen combination meals') -- used here for
+  the chilled (cook-chill) vs. frozen (cook-freeze) product types
+  respectively, since UNSPSC does not publish separate 8-digit
+  commodities per protein/base ingredient (poultry/beef/fish/
+  vegetarian) within this family; fabricating that granularity would
+  violate the same 'never invent a jurisdiction's requirements'
+  discipline `pressureequip.facts`/every sibling actor's facts registry
+  already applies.
+
+  `:gtin` is NOT a classification taxonomy code -- a GTIN (Global Trade
+  Item Number) is an identifier GS1 issues per REGISTERED PHYSICAL
+  PRODUCT only after a real company enrolls with GS1 (see
+  `cloud-itonami-gtin-issuance`'s README / superproject
+  ADR-2607031800). Every `:gtin` value here is a SYNTACTICALLY VALID
+  but NEVER-ISSUED placeholder built on GS1's own officially-documented
+  'Restricted Circulation Number' (RCN) prefix range '020'-'029' (GS1
+  GSCN-23-006-RCN / gs1.org 'GS1 Company Prefix' docs -- a range GS1
+  itself reserves for company-internal/restricted use, i.e. explicitly
+  NOT a globally-unique retail identifier) with a correctly computed
+  Modulo-10 GTIN-13 check digit. The sibling key `:gtin/status
+  :unissued-blueprint-placeholder` makes the non-issuance explicit;
+  treat `:gtin` here as an EXAMPLE VALUE ONLY."
   {:meal/cook-chill-poultry
    {:id :meal/cook-chill-poultry
     :name "クックチル調理済み食品(鶏肉ベース)"
@@ -43,7 +72,10 @@
     :cold-storage-temp-max-c 3.0
     :max-shelf-life-hours 120.0
     :water-activity-max 0.97
-    :ph-max 5.0}
+    :ph-max 5.0
+    :unspsc-code "50192701"
+    :gtin "0211075000011"
+    :gtin/status :unissued-blueprint-placeholder}
 
    :meal/cook-chill-beef
    {:id :meal/cook-chill-beef
@@ -54,7 +86,10 @@
     :cold-storage-temp-max-c 3.0
     :max-shelf-life-hours 120.0
     :water-activity-max 0.97
-    :ph-max 5.0}
+    :ph-max 5.0
+    :unspsc-code "50192701"
+    :gtin "0211075000028"
+    :gtin/status :unissued-blueprint-placeholder}
 
    :meal/cook-freeze-fish
    {:id :meal/cook-freeze-fish
@@ -69,7 +104,10 @@
     ;; shelf life.
     :max-shelf-life-hours 4380.0
     :water-activity-max 0.97
-    :ph-max 6.5}
+    :ph-max 6.5
+    :unspsc-code "50192702"
+    :gtin "0211075000035"
+    :gtin/status :unissued-blueprint-placeholder}
 
    :meal/cook-chill-vegetarian
    {:id :meal/cook-chill-vegetarian
@@ -84,7 +122,10 @@
     ;; meat-based cook-chill product types.
     :max-shelf-life-hours 96.0
     :water-activity-max 0.98
-    :ph-max 5.5}})
+    :ph-max 5.5
+    :unspsc-code "50192701"
+    :gtin "0211075000042"
+    :gtin/status :unissued-blueprint-placeholder}})
 
 (defn product-type-by-id [id]
   (get product-types id))
@@ -220,7 +261,17 @@
 ;;    :handoff/cold-chain-temp-min-c 0.0
 ;;    :handoff/cold-chain-temp-max-c 3.0
 ;;    :handoff/quantity-kg 120.5
-;;    :handoff/dispatched-at-iso "..."}
+;;    :handoff/dispatched-at-iso "..."
+;;    :handoff/unspsc-code "50192701"    ; OPTIONAL, pass-through only -- see
+;;    :handoff/gtin "0211075000011"}     ; superproject UNSPSC/GTIN-linkage
+;;                                       ; ADR. Neither side validates these
+;;                                       ; two (no existing predicate reads
+;;                                       ; them); they ride along on the
+;;                                       ; record for downstream traceability,
+;;                                       ; the same asymmetric-optional,
+;;                                       ; no-new-hard-check discipline
+;;                                       ; `coldchain.governor`'s grid-outage
+;;                                       ; reference fields already establish.
 
 (defn handoff-window-within-product-safety-margin?
   "Positive-sense convenience predicate: is the declared handoff's
