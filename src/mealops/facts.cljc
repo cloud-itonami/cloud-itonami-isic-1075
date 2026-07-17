@@ -199,3 +199,76 @@
   (boolean
    (and (some? product)
         (<= ph (:ph-max product)))))
+
+;; ─────────────── Cross-Actor Handoff (isic-1075 <-> jsic-4721) ───────────────
+;;
+;; `:coordinate-shipment` proposals that hand a finished batch off to a
+;; downstream cold-chain 3PL actor (e.g. cloud-itonami-jsic-4721) carry a
+;; `:handoff` record: a small, self-contained wire-shape (documented in
+;; superproject ADR-2607177600, `90-docs/adr/`) that both this actor and
+;; the receiving actor independently validate as PURE PREDICATES against
+;; their own reference data -- no shared code, no shared store, just the
+;; same field names on both sides. This actor's half of that contract is
+;; a single check: does the handoff's declared cold-chain-temp-min-c/
+;; max-c window stay within the margin this actor's own `product-types`
+;; registry already knows to be safe for that product?
+;;
+;;   {:handoff/id "..."
+;;    :handoff/source-actor "cloud-itonami-isic-1075"
+;;    :handoff/batch-id "..."
+;;    :handoff/product-type-id :meal/cook-chill-poultry
+;;    :handoff/cold-chain-temp-min-c 0.0
+;;    :handoff/cold-chain-temp-max-c 3.0
+;;    :handoff/quantity-kg 120.5
+;;    :handoff/dispatched-at-iso "..."}
+
+(defn handoff-window-within-product-safety-margin?
+  "Positive-sense convenience predicate: is the declared handoff's
+  cold-chain-temp-min-c/max-c window entirely contained within (a
+  subset of) `product`'s own cold-storage-temp-min-c/max-c safety
+  window? A handoff declaring a WIDER or shifted window than the
+  product's proven-safe cold-chain range (e.g. -5C to 5C for a product
+  whose safety margin is only 0C to 3C) is a cross-actor handoff
+  violation -- the same kind of cold-chain-break concern
+  `cold-storage-temp-in-range?` catches for a single instantaneous
+  reading, but evaluated over the whole declared window up front,
+  before the batch ever leaves this actor's custody."
+  [handoff-min-c handoff-max-c product]
+  (boolean
+   (and (some? product)
+        (some? handoff-min-c)
+        (some? handoff-max-c)
+        (<= handoff-min-c handoff-max-c)
+        (>= handoff-min-c (:cold-storage-temp-min-c product))
+        (<= handoff-max-c (:cold-storage-temp-max-c product)))))
+
+;; ─────────────── Raw-Material Lot / Supplier Verification ───────────────
+;;
+;; `:raw-material-intake-record` used to be a bare evidence-checklist
+;; checkbox with no underlying supply-chain data behind it. This makes
+;; that data explicit: a `:material-lot` record attached to a production
+;; batch (see `mealops.store`'s batch-key docs) carries which lot, from
+;; which declared supplier, whether this actor has independently
+;; VERIFIED that supplier (never inferred from the supplier's own
+;; self-declaration), and when the lot was received.
+;;
+;;   {:material/lot-id "..."
+;;    :material/supplier-name "..."
+;;    :material/supplier-verified? true
+;;    :material/received-at-iso "..."}
+
+(def material-lot-keys
+  "The canonical key shape of a raw-material intake lot record. Not a
+  reference catalog like `product-types`/`jurisdictions` -- lot data is
+  per-batch instance data that lives in the store, this is just the
+  documented shape."
+  #{:material/lot-id :material/supplier-name :material/supplier-verified?
+    :material/received-at-iso})
+
+(defn material-lot-supplier-verified?
+  "Positive-sense convenience predicate: does `material-lot` explicitly
+  declare its supplier as verified? Missing, false, or nil are all
+  treated as NOT verified -- an absent declaration is never silently
+  trusted as a pass."
+  [material-lot]
+  (true? (:material/supplier-verified? material-lot)))
