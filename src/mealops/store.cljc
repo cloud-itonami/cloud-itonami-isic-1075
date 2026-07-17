@@ -27,6 +27,10 @@
       shared prep surfaces/equipment (e.g. #{:milk :gluten})
     - :declared-allergens set of allergen keywords declared on label
     - :evidence-checklist evidence items present for the batch
+    - :material-lot raw-material intake lot record (see
+      `mealops.facts/material-lot-keys`) backing the
+      `:raw-material-intake-record` evidence-checklist item with real
+      supplier-verification data
     - :safety-concern-raised? / :safety-concern-resolved? food-safety flag
     - :processed? true once a `:log-production-batch` proposal commits
     - :shipment-finalized? true once a `:coordinate-shipment` proposal commits

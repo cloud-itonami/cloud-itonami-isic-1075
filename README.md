@@ -44,10 +44,35 @@ The Governor is the separation-of-powers enforcement. It never trusts the adviso
   - Packaging seal (vacuum/MAP) compromised (`:packaging-seal-compromised`)
   - Unresolved food-safety flag (`:food-safety-flag-unresolved`)
   - Batch already processed / shipment already finalized (double-commit guards)
+  - `:coordinate-shipment` with no `:handoff` record (`:handoff-missing`) — see "Cross-Actor Handoff" below
+  - Handoff's declared cold-chain-temp-min-c/max-c window exceeds the product's own proven-safe cold-storage safety margin (`:handoff-cold-chain-window-exceeds-product-safety-margin`)
+  - Handoff's `:handoff/batch-id` does not point to a batch this actor has actually completed `:log-production-batch` for (`:handoff-batch-not-registered`)
 - **Escalate** (human sign-off always required):
   - `:log-production-batch` / `:coordinate-shipment` — real actuation events, always require plant-operator sign-off even when the Governor is otherwise clean
   - `:flag-food-safety-concern` — a food-safety concern (HACCP critical-limit deviation, allergen cross-contact, cold-chain break) is never auto-resolved by advisor confidence alone
   - Low advisor confidence (below `governor/confidence-floor`, 0.6)
+  - Raw-material lot present on the evidence checklist but its supplier is not explicitly declared verified (`:supplier-not-verified`) — a traceability concern, not a hard hold; see "Raw-Material Traceability" below
+
+### Cross-Actor Handoff (isic-1075 → jsic-4721)
+
+`:coordinate-shipment` proposals that hand a finished batch off to a downstream cold-chain 3PL actor (e.g. `cloud-itonami-jsic-4721`) carry a `:handoff` record under the proposal's `:value` — a small wire shape (documented in superproject ADR-2607177600) both actors independently validate as pure predicates, with no shared code and no shared store:
+
+```clojure
+{:handoff/id "..."
+ :handoff/source-actor "cloud-itonami-isic-1075"
+ :handoff/batch-id "..."
+ :handoff/product-type-id :meal/cook-chill-poultry
+ :handoff/cold-chain-temp-min-c 0.0
+ :handoff/cold-chain-temp-max-c 3.0
+ :handoff/quantity-kg 120.5
+ :handoff/dispatched-at-iso "..."}
+```
+
+This actor's half of the contract is `mealops.facts/handoff-window-within-product-safety-margin?` — a subset check against this actor's own `product-types` registry (see `mealops.governor`'s `handoff-*-violations` functions).
+
+### Raw-Material Traceability
+
+`:raw-material-intake-record` (the evidence-checklist item) is now backed by an explicit `:material-lot` record on the batch (`mealops.facts/material-lot-keys`: `:material/lot-id` / `:material/supplier-name` / `:material/supplier-verified?` / `:material/received-at-iso`). A batch whose checklist declares the intake record present but whose `material-lot`'s supplier is not explicitly verified (`mealops.facts/material-lot-supplier-verified?`) is not hard-held — it always escalates to a human instead, same treatment as a food-safety concern.
 - **Commit** (advisor proposal approved; Governor clean; not a mandatory-escalation op):
   - Routine, low-stakes proposals only — in this actor's current allowlist that is effectively `:schedule-maintenance` when clean
 

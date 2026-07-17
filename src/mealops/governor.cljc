@@ -70,11 +70,23 @@
    18. Food-safety flag unresolved (open concern, escalate required)
    19. Batch already processed (double-commit guard)
    20. Shipment already finalized (double-commit guard)
+   21. `:coordinate-shipment` with no `:handoff` record (nothing for
+       either side of the isic-1075/jsic-4721 handoff to verify)
+   22. Handoff's declared cold-chain-temp-min-c/max-c window exceeds the
+       product's own proven-safe cold-storage safety margin
+   23. Handoff's `:handoff/batch-id` does not point to a batch this
+       actor has actually completed `:log-production-batch` for
+       (extends check #3 to the cross-actor handoff reference, not just
+       the shipment proposal's own subject)
 
   Soft gates (always escalate for human):
     - Low confidence
     - Real actuation (`:log-production-batch`, `:coordinate-shipment`)
     - `:flag-food-safety-concern` (never auto-resolved by confidence alone)
+    - Raw-material lot present on the evidence checklist but its
+      supplier is not explicitly declared verified (`:supplier-not-
+      verified` -- a raw-material-traceability concern, not a hard
+      hold; see `mealops.facts`'s material-lot section)
 
   This design mirrors `chocops.governor` (ISIC 1073) and `bakeops.governor`
   but specializes on prepared-meals/ready-dish-specific concerns: cook-
@@ -405,15 +417,107 @@
       [{:rule :already-shipment-finalized
         :detail (str subject " は既に出荷確定済み")}])))
 
+;; ────────────── Cross-Actor Handoff (isic-1075 -> jsic-4721) ──────────────
+;;
+;; `:coordinate-shipment` hands a finished batch off to a downstream
+;; cold-chain 3PL actor (e.g. cloud-itonami-jsic-4721). See
+;; `mealops.facts`'s "Cross-Actor Handoff" section and superproject
+;; ADR-2607177600 for the shared (but NOT shared-code) wire shape both
+;; sides independently validate.
+
+(defn- handoff-missing-violations
+  "HARD invariant: `:coordinate-shipment` MUST carry a `:handoff` record
+  under the proposal's `:value` -- without one, there is nothing for
+  this actor OR the downstream cold-chain 3PL to independently verify,
+  and finished product must never leave this actor's custody on an
+  advisor's word alone."
+  [{:keys [op]} proposal]
+  (when (= op :coordinate-shipment)
+    (when-not (map? (get-in proposal [:value :handoff]))
+      [{:rule :handoff-missing
+        :detail "coordinate-shipment提案に:handoffレコードが無い -- 下流のコールドチェーン3PLへ独立検証可能な引き渡し情報が無い状態では出荷提案は進められない"}])))
+
+(defn- handoff-cold-chain-window-exceeds-product-safety-margin-violations
+  "HARD invariant: INDEPENDENTLY verify (via
+  `facts/handoff-window-within-product-safety-margin?`) that the
+  handoff's declared cold-chain-temp-min-c/max-c window stays within
+  this actor's own `product-types` registry's proven-safe cold-storage
+  window for that product. Evaluated whenever a `:handoff` map with a
+  resolvable product type and both temperature bounds is present --
+  never invented from a missing/unresolvable product type."
+  [{:keys [op]} proposal]
+  (when (= op :coordinate-shipment)
+    (let [handoff (get-in proposal [:value :handoff])]
+      (when (map? handoff)
+        (let [product (facts/product-type-by-id (:handoff/product-type-id handoff))
+              handoff-min (:handoff/cold-chain-temp-min-c handoff)
+              handoff-max (:handoff/cold-chain-temp-max-c handoff)]
+          (when (and product (some? handoff-min) (some? handoff-max)
+                     (not (facts/handoff-window-within-product-safety-margin?
+                           handoff-min handoff-max product)))
+            [{:rule :handoff-cold-chain-window-exceeds-product-safety-margin
+              :detail (str "handoffの宣言コールドチェーン窓(" handoff-min "℃~" handoff-max
+                          "℃)が製品規格の安全マージン(" (:cold-storage-temp-min-c product) "℃~"
+                          (:cold-storage-temp-max-c product) "℃)を超過 -- 出荷提案は進められない")}]))))))
+
+(defn- handoff-batch-not-registered-violations
+  "HARD invariant, an extension of `batch-not-registered-violations`:
+  `:handoff/batch-id` must point to a batch that has ACTUALLY completed
+  `:log-production-batch` (i.e. `:processed? true`) in this actor's own
+  store -- not merely exist as a pre-registered record. A shipment must
+  never be coordinated for a handoff referencing a batch this actor
+  hasn't itself finished logging as produced."
+  [{:keys [op]} proposal st]
+  (when (= op :coordinate-shipment)
+    (let [handoff (get-in proposal [:value :handoff])]
+      (when (map? handoff)
+        (let [handoff-batch-id (:handoff/batch-id handoff)
+              b (when handoff-batch-id (store/production-batch st handoff-batch-id))]
+          (when-not (and handoff-batch-id b (:processed? b))
+            [{:rule :handoff-batch-not-registered
+              :detail (str "handoffの:handoff/batch-id(" handoff-batch-id
+                          ")が、このプラントで:log-production-batch済みのバッチを指していない -- 出荷提案は進められない")}]))))))
+
+(defn- supplier-not-verified-escalation
+  "SOFT signal, never a hard hold: for `:log-production-batch`, when the
+  evidence checklist declares `:raw-material-intake-record` present,
+  ALSO independently verify (via
+  `facts/material-lot-supplier-verified?`) that the batch's
+  corresponding `:material-lot` record explicitly declares its supplier
+  verified. An unverified (or entirely undeclared) supplier is real
+  raw-material-traceability risk, but -- unlike every hard violation
+  above -- it is NOT grounds to unconditionally refuse the proposal;
+  it always routes to human escalation instead, same as a food-safety
+  concern, rather than being silently trusted on the evidence-checklist
+  boolean alone."
+  [{:keys [op subject]} st]
+  (when (= op :log-production-batch)
+    (let [b (store/production-batch st subject)]
+      (when (and b
+                 (some #{:raw-material-intake-record} (:evidence-checklist b))
+                 (not (facts/material-lot-supplier-verified? (:material-lot b))))
+        [{:rule :supplier-not-verified
+          :detail (str subject " の原材料ロット(" (get-in b [:material-lot :material/lot-id])
+                      ")のサプライヤーが検証済みと明示されていない -- holdではなく人間へのescalateが必要")}]))))
+
 (defn check
   "Censors a MealOpsAdvisor proposal against the Governor rules.
-  Returns {:ok? bool :violations [..] :confidence c :escalate? bool
-  :high-stakes? bool :hard? bool}.
+  Returns {:ok? bool :violations [..] :soft-violations [..]
+  :confidence c :escalate? bool :high-stakes? bool :hard? bool}.
 
   Stakes (high-stakes actuation vs. always-escalate) are read off the
   REQUEST's `:op` -- not off the proposal -- since the operation being
   proposed (not the advisor's self-reported stake) is what determines
-  whether a human must sign off."
+  whether a human must sign off.
+
+  `:violations` (`hard`) are un-overridable HOLDs. `:soft-violations`
+  are additional, independently-detected concerns (currently only
+  `:supplier-not-verified`) that are NOT grounds for a hold but DO force
+  `:escalate?` true even when every hard check passes and confidence is
+  high and the op is not otherwise in `always-escalate-ops` -- same
+  effect as low confidence, kept in a separate key so `:violations`
+  keeps meaning exactly what it always has (a hard, un-overridable
+  hold reason)."
   [request _context proposal st]
   (let [hard (into []
                    (concat (op-not-allowed-violations request proposal)
@@ -435,18 +539,24 @@
                            (packaging-seal-compromised-violations request st)
                            (food-safety-flag-unresolved-violations request st)
                            (already-processed-violations request st)
-                           (already-shipment-finalized-violations request st)))
+                           (already-shipment-finalized-violations request st)
+                           (handoff-missing-violations request proposal)
+                           (handoff-cold-chain-window-exceeds-product-safety-margin-violations request proposal)
+                           (handoff-batch-not-registered-violations request proposal st)))
+        soft (into [] (supplier-not-verified-escalation request st))
         conf (:confidence proposal 0.0)
         low? (< conf confidence-floor)
         actuation? (boolean (high-stakes (:op request)))
         escalate-op? (boolean (always-escalate-ops (:op request)))
-        hard? (boolean (seq hard))]
-    {:ok?          (and (not hard?) (not low?) (not escalate-op?))
-     :violations   hard
-     :confidence   conf
-     :hard?        hard?
-     :escalate?    (and (not hard?) (or low? escalate-op?))
-     :high-stakes? actuation?}))
+        hard? (boolean (seq hard))
+        soft? (boolean (seq soft))]
+    {:ok?             (and (not hard?) (not low?) (not escalate-op?) (not soft?))
+     :violations      hard
+     :soft-violations soft
+     :confidence      conf
+     :hard?           hard?
+     :escalate?       (and (not hard?) (or low? escalate-op? soft?))
+     :high-stakes?    actuation?}))
 
 (defn hold-fact
   "The audit fact written when a proposal is rejected (HOLD)."

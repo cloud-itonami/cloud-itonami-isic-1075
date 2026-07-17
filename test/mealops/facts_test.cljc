@@ -138,3 +138,46 @@
   (testing "pH above max fails"
     (let [p (facts/product-type-by-id :meal/cook-chill-poultry)]
       (is (false? (facts/ph-level-within-max? 6.0 p))))))
+
+;; ──────────────── Cross-Actor Handoff Window (isic-1075 <-> jsic-4721) ────────────────
+
+(deftest handoff-window-within-product-safety-margin-test
+  (testing "handoff window equal to the product's safety margin passes"
+    (let [p (facts/product-type-by-id :meal/cook-chill-poultry)]
+      (is (true? (facts/handoff-window-within-product-safety-margin? 0.0 3.0 p)))))
+
+  (testing "handoff window strictly inside the product's safety margin passes"
+    (let [p (facts/product-type-by-id :meal/cook-chill-poultry)]
+      (is (true? (facts/handoff-window-within-product-safety-margin? 1.0 2.0 p)))))
+
+  (testing "handoff window wider than the product's safety margin fails"
+    (let [p (facts/product-type-by-id :meal/cook-chill-poultry)]
+      (is (false? (facts/handoff-window-within-product-safety-margin? -5.0 5.0 p)))))
+
+  (testing "handoff window shifted outside the product's safety margin fails"
+    (let [p (facts/product-type-by-id :meal/cook-freeze-fish)]
+      (is (false? (facts/handoff-window-within-product-safety-margin? -18.0 -10.0 p)))))
+
+  (testing "inverted handoff window (min > max) fails"
+    (let [p (facts/product-type-by-id :meal/cook-chill-poultry)]
+      (is (false? (facts/handoff-window-within-product-safety-margin? 3.0 0.0 p)))))
+
+  (testing "nil product fails"
+    (is (false? (facts/handoff-window-within-product-safety-margin? 0.0 3.0 nil)))))
+
+;; ──────────────── Raw-Material Lot / Supplier Verification ────────────────
+
+(deftest material-lot-supplier-verified-test
+  (testing "explicit true passes"
+    (is (true? (facts/material-lot-supplier-verified?
+                {:material/lot-id "lot-1" :material/supplier-verified? true}))))
+
+  (testing "explicit false fails"
+    (is (false? (facts/material-lot-supplier-verified?
+                 {:material/lot-id "lot-1" :material/supplier-verified? false}))))
+
+  (testing "missing key fails (never silently trusted)"
+    (is (false? (facts/material-lot-supplier-verified? {:material/lot-id "lot-1"}))))
+
+  (testing "nil material-lot fails"
+    (is (false? (facts/material-lot-supplier-verified? nil)))))

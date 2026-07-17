@@ -321,3 +321,145 @@
           result (governor/check req {:actor-id "gov-1"} prop store)]
       (is (true? (:hard? result)))
       (is (some #(= (:rule %) :already-shipment-finalized) (:violations result))))))
+
+;; ────────────── Cross-Actor Handoff (coordinate-shipment -> jsic-4721) ──────────────
+
+(def ^:private processed-batch
+  "clean-batch, but already through :log-production-batch (:processed? true) --
+  the state a batch must be in before :coordinate-shipment is meaningful."
+  (assoc clean-batch :processed? true))
+
+(defn- handoff-proposal [handoff]
+  {:cites [{:spec "Shipment-Manual"}]
+   :value {:jurisdiction :us/fda :handoff handoff}
+   :confidence 0.8})
+
+(deftest handoff-missing-violation-test
+  (testing "coordinate-shipment with no :handoff record is a hard violation"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id processed-batch}}
+          req {:op :coordinate-shipment :subject batch-id}
+          prop {:cites [{:spec "Shipment-Manual"}] :value {:jurisdiction :us/fda} :confidence 0.8}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (true? (:hard? result)))
+      (is (some #(= (:rule %) :handoff-missing) (:violations result))))))
+
+(deftest handoff-cold-chain-window-violation-test
+  (testing "handoff window exceeding the product's safety margin is a hard violation"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id processed-batch}}
+          req {:op :coordinate-shipment :subject batch-id}
+          handoff {:handoff/id "h-1"
+                   :handoff/source-actor "cloud-itonami-isic-1075"
+                   :handoff/batch-id batch-id
+                   :handoff/product-type-id :meal/cook-chill-poultry
+                   :handoff/cold-chain-temp-min-c -5.0
+                   :handoff/cold-chain-temp-max-c 5.0
+                   :handoff/quantity-kg 120.5
+                   :handoff/dispatched-at-iso "2026-07-17T00:00:00Z"}
+          prop (handoff-proposal handoff)
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (true? (:hard? result)))
+      (is (some #(= (:rule %) :handoff-cold-chain-window-exceeds-product-safety-margin)
+                (:violations result)))))
+
+  (testing "handoff window within the product's safety margin does not trigger this rule (still escalates as high-stakes coordinate-shipment)"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id processed-batch}}
+          req {:op :coordinate-shipment :subject batch-id}
+          handoff {:handoff/id "h-2"
+                   :handoff/source-actor "cloud-itonami-isic-1075"
+                   :handoff/batch-id batch-id
+                   :handoff/product-type-id :meal/cook-chill-poultry
+                   :handoff/cold-chain-temp-min-c 0.0
+                   :handoff/cold-chain-temp-max-c 3.0
+                   :handoff/quantity-kg 120.5
+                   :handoff/dispatched-at-iso "2026-07-17T00:00:00Z"}
+          prop (handoff-proposal handoff)
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (not (some #(= (:rule %) :handoff-cold-chain-window-exceeds-product-safety-margin)
+                     (:violations result))))
+      (is (false? (:hard? result)))
+      (is (true? (:escalate? result)))
+      (is (true? (:high-stakes? result))))))
+
+(deftest handoff-batch-not-registered-violation-test
+  (testing "handoff referencing a batch-id never logged as produced is a hard violation"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id processed-batch}}
+          req {:op :coordinate-shipment :subject batch-id}
+          handoff {:handoff/id "h-3"
+                   :handoff/source-actor "cloud-itonami-isic-1075"
+                   :handoff/batch-id "batch-ghost"
+                   :handoff/product-type-id :meal/cook-chill-poultry
+                   :handoff/cold-chain-temp-min-c 0.0
+                   :handoff/cold-chain-temp-max-c 3.0
+                   :handoff/quantity-kg 50.0
+                   :handoff/dispatched-at-iso "2026-07-17T00:00:00Z"}
+          prop (handoff-proposal handoff)
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (true? (:hard? result)))
+      (is (some #(= (:rule %) :handoff-batch-not-registered) (:violations result)))))
+
+  (testing "handoff referencing a batch-id that exists but has not completed :log-production-batch is a hard violation"
+    (let [batch-id "batch-001"
+          unprocessed-batch-id "batch-002"
+          store {:batches {batch-id processed-batch
+                            unprocessed-batch-id clean-batch}}
+          req {:op :coordinate-shipment :subject batch-id}
+          handoff {:handoff/id "h-4"
+                   :handoff/source-actor "cloud-itonami-isic-1075"
+                   :handoff/batch-id unprocessed-batch-id
+                   :handoff/product-type-id :meal/cook-chill-poultry
+                   :handoff/cold-chain-temp-min-c 0.0
+                   :handoff/cold-chain-temp-max-c 3.0
+                   :handoff/quantity-kg 50.0
+                   :handoff/dispatched-at-iso "2026-07-17T00:00:00Z"}
+          prop (handoff-proposal handoff)
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (true? (:hard? result)))
+      (is (some #(= (:rule %) :handoff-batch-not-registered) (:violations result))))))
+
+;; ────────────── Raw-Material Supplier Verification (Escalate, not Hold) ──────────────
+
+(deftest supplier-not-verified-escalation-test
+  (testing "raw-material-intake-record present but no :material-lot record escalates, not holds"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id clean-batch}}
+          req {:op :log-production-batch :subject batch-id}
+          prop {:cites [{:spec "UK-FSA-Cook-Chill-Guidance"}] :value {:jurisdiction :us/fda} :confidence 0.95}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (false? (:hard? result)))
+      (is (true? (:escalate? result)))
+      (is (some #(= (:rule %) :supplier-not-verified) (:soft-violations result)))))
+
+  (testing "material-lot present with supplier-verified? false escalates, not holds"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id (assoc clean-batch
+                                            :material-lot {:material/lot-id "lot-9"
+                                                            :material/supplier-name "Acme Farms"
+                                                            :material/supplier-verified? false
+                                                            :material/received-at-iso "2026-07-15T00:00:00Z"})}}
+          req {:op :log-production-batch :subject batch-id}
+          prop {:cites [{:spec "UK-FSA-Cook-Chill-Guidance"}] :value {:jurisdiction :us/fda} :confidence 0.95}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (false? (:hard? result)))
+      (is (true? (:escalate? result)))
+      (is (some #(= (:rule %) :supplier-not-verified) (:soft-violations result)))))
+
+  (testing "material-lot present with supplier-verified? true does not trigger this rule"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id (assoc clean-batch
+                                            :material-lot {:material/lot-id "lot-9"
+                                                            :material/supplier-name "Acme Farms"
+                                                            :material/supplier-verified? true
+                                                            :material/received-at-iso "2026-07-15T00:00:00Z"})}}
+          req {:op :log-production-batch :subject batch-id}
+          prop {:cites [{:spec "UK-FSA-Cook-Chill-Guidance"}] :value {:jurisdiction :us/fda} :confidence 0.95}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (false? (:hard? result)))
+      (is (empty? (:soft-violations result)))
+      (is (not (some #(= (:rule %) :supplier-not-verified) (:soft-violations result))))
+      ;; :log-production-batch always escalates regardless (high-stakes
+      ;; actuation) -- but for the right reason this time, not supplier risk.
+      (is (true? (:escalate? result))))))
