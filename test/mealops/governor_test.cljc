@@ -383,6 +383,29 @@
       (is (true? (:escalate? result)))
       (is (true? (:high-stakes? result))))))
 
+(deftest handoff-with-optional-unspsc-gtin-pass-through-fields-test
+  (testing "a handoff carrying the optional :handoff/unspsc-code and :handoff/gtin pass-through fields behaves identically to one without them -- neither field is validated"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id processed-batch}}
+          req {:op :coordinate-shipment :subject batch-id}
+          handoff {:handoff/id "h-5"
+                   :handoff/source-actor "cloud-itonami-isic-1075"
+                   :handoff/batch-id batch-id
+                   :handoff/product-type-id :meal/cook-chill-poultry
+                   :handoff/cold-chain-temp-min-c 0.0
+                   :handoff/cold-chain-temp-max-c 3.0
+                   :handoff/quantity-kg 120.5
+                   :handoff/dispatched-at-iso "2026-07-17T00:00:00Z"
+                   :handoff/unspsc-code "50192701"
+                   :handoff/gtin "0211075000011"}
+          prop (handoff-proposal handoff)
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (not (some #(= (:rule %) :handoff-cold-chain-window-exceeds-product-safety-margin)
+                     (:violations result))))
+      (is (false? (:hard? result)))
+      (is (true? (:escalate? result)))
+      (is (true? (:high-stakes? result))))))
+
 (deftest handoff-batch-not-registered-violation-test
   (testing "handoff referencing a batch-id never logged as produced is a hard violation"
     (let [batch-id "batch-001"
