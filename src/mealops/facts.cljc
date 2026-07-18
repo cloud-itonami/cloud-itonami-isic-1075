@@ -390,7 +390,7 @@
   farm-record coordination only -- see each actor's own `governor.cljc`
   `known-ops`), so they cannot originate a `:handoff` for this actor to
   receive directly; deliberately absent here rather than invented. See
-  ADR-2607181500 for the fuller inventory (including the isic-0311/0312/
+  ADR-2800000800 for the fuller inventory (including the isic-0311/0312/
   0321/0322 fishery/aquaculture actors that exist upstream of isic-1020
   but are also out of THIS actor's direct-supplier scope)."
   {:meal/cook-chill-poultry #{"cloud-itonami-isic-1010"}
