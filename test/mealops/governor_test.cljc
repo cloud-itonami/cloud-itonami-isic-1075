@@ -486,3 +486,139 @@
       ;; :log-production-batch always escalates regardless (high-stakes
       ;; actuation) -- but for the right reason this time, not supplier risk.
       (is (true? (:escalate? result))))))
+
+;; ────────────── Inbound Raw-Material Handoff (Escalate, not Hold) ──────────────
+
+(def ^:private inbound-rawmat-handoff
+  {:handoff/id "h-in-1"
+   :handoff/source-actor "cloud-itonami-isic-1010"
+   :handoff/batch-id "meat-batch-1"
+   :handoff/product-type-id "fresh-poultry"
+   :handoff/quantity-kg 500.0
+   :handoff/dispatched-at-iso "2026-07-15T00:00:00Z"})
+
+(deftest rawmat-handoff-suspect-escalation-test
+  (testing "no :material/handoff at all does not trigger this rule"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id (assoc clean-batch
+                                            :material-lot {:material/lot-id "lot-9"
+                                                            :material/supplier-verified? true})}}
+          req {:op :log-production-batch :subject batch-id}
+          prop {:cites [{:spec "UK-FSA-Cook-Chill-Guidance"}] :value {:jurisdiction :us/fda} :confidence 0.95}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (false? (:hard? result)))
+      (is (not (some #(= (:rule %) :rawmat-handoff-suspect) (:soft-violations result))))))
+
+  (testing "well-formed handoff from the registered upstream supplier for this batch's category does not trigger this rule"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id (assoc clean-batch
+                                            :material-lot {:material/lot-id "lot-9"
+                                                            :material/supplier-verified? true
+                                                            :material/handoff inbound-rawmat-handoff})}}
+          req {:op :log-production-batch :subject batch-id}
+          prop {:cites [{:spec "UK-FSA-Cook-Chill-Guidance"}] :value {:jurisdiction :us/fda} :confidence 0.95}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (false? (:hard? result)))
+      (is (not (some #(= (:rule %) :rawmat-handoff-suspect) (:soft-violations result))))))
+
+  (testing "handoff from an unrecognized source-actor escalates, not holds"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id (assoc clean-batch
+                                            :material-lot {:material/lot-id "lot-9"
+                                                            :material/supplier-verified? true
+                                                            :material/handoff
+                                                            (assoc inbound-rawmat-handoff
+                                                                   :handoff/source-actor "cloud-itonami-isic-9999")})}}
+          req {:op :log-production-batch :subject batch-id}
+          prop {:cites [{:spec "UK-FSA-Cook-Chill-Guidance"}] :value {:jurisdiction :us/fda} :confidence 0.95}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (false? (:hard? result)))
+      (is (true? (:escalate? result)))
+      (is (some #(= (:rule %) :rawmat-handoff-suspect) (:soft-violations result)))))
+
+  (testing "malformed handoff (missing quantity-kg) escalates, not holds"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id (assoc clean-batch
+                                            :material-lot {:material/lot-id "lot-9"
+                                                            :material/supplier-verified? true
+                                                            :material/handoff (dissoc inbound-rawmat-handoff :handoff/quantity-kg)})}}
+          req {:op :log-production-batch :subject batch-id}
+          prop {:cites [{:spec "UK-FSA-Cook-Chill-Guidance"}] :value {:jurisdiction :us/fda} :confidence 0.95}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (false? (:hard? result)))
+      (is (some #(= (:rule %) :rawmat-handoff-suspect) (:soft-violations result))))))
+
+;; ────────────── Inbound Packaging-Material Handoff (Escalate, not Hold) ──────────────
+
+(def ^:private inbound-packaging-handoff
+  {:handoff/id "h-in-2"
+   :handoff/source-actor "cloud-itonami-isic-1702"
+   :handoff/batch-id "box-batch-1"
+   :handoff/product-type-id "corrugated-case"
+   :handoff/quantity-kg 80.0
+   :handoff/dispatched-at-iso "2026-07-15T00:00:00Z"})
+
+(deftest packaging-handoff-suspect-escalation-test
+  (testing "no :packaging/handoff at all does not trigger this rule"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id (assoc clean-batch
+                                            :packaging-lot {:packaging/lot-id "plot-1"
+                                                             :packaging/supplier-verified? true})}}
+          req {:op :log-production-batch :subject batch-id}
+          prop {:cites [{:spec "UK-FSA-Cook-Chill-Guidance"}] :value {:jurisdiction :us/fda} :confidence 0.95}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (false? (:hard? result)))
+      (is (not (some #(= (:rule %) :packaging-handoff-suspect) (:soft-violations result))))))
+
+  (testing "well-formed handoff from a registered packaging supplier (isic-1702) does not trigger this rule"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id (assoc clean-batch
+                                            :packaging-lot {:packaging/lot-id "plot-1"
+                                                             :packaging/supplier-verified? true
+                                                             :packaging/handoff inbound-packaging-handoff})}}
+          req {:op :log-production-batch :subject batch-id}
+          prop {:cites [{:spec "UK-FSA-Cook-Chill-Guidance"}] :value {:jurisdiction :us/fda} :confidence 0.95}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (false? (:hard? result)))
+      (is (not (some #(= (:rule %) :packaging-handoff-suspect) (:soft-violations result))))))
+
+  (testing "well-formed handoff from a registered packaging supplier (isic-2220) does not trigger this rule"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id (assoc clean-batch
+                                            :packaging-lot {:packaging/lot-id "plot-1"
+                                                             :packaging/supplier-verified? true
+                                                             :packaging/handoff
+                                                             (assoc inbound-packaging-handoff
+                                                                    :handoff/source-actor "cloud-itonami-isic-2220")})}}
+          req {:op :log-production-batch :subject batch-id}
+          prop {:cites [{:spec "UK-FSA-Cook-Chill-Guidance"}] :value {:jurisdiction :us/fda} :confidence 0.95}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (false? (:hard? result)))
+      (is (not (some #(= (:rule %) :packaging-handoff-suspect) (:soft-violations result))))))
+
+  (testing "handoff from an unrecognized packaging source-actor escalates, not holds"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id (assoc clean-batch
+                                            :packaging-lot {:packaging/lot-id "plot-1"
+                                                             :packaging/supplier-verified? true
+                                                             :packaging/handoff
+                                                             (assoc inbound-packaging-handoff
+                                                                    :handoff/source-actor "cloud-itonami-isic-9999")})}}
+          req {:op :log-production-batch :subject batch-id}
+          prop {:cites [{:spec "UK-FSA-Cook-Chill-Guidance"}] :value {:jurisdiction :us/fda} :confidence 0.95}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (false? (:hard? result)))
+      (is (true? (:escalate? result)))
+      (is (some #(= (:rule %) :packaging-handoff-suspect) (:soft-violations result)))))
+
+  (testing "malformed packaging handoff (missing dispatched-at-iso) escalates, not holds"
+    (let [batch-id "batch-001"
+          store {:batches {batch-id (assoc clean-batch
+                                            :packaging-lot {:packaging/lot-id "plot-1"
+                                                             :packaging/supplier-verified? true
+                                                             :packaging/handoff (dissoc inbound-packaging-handoff :handoff/dispatched-at-iso)})}}
+          req {:op :log-production-batch :subject batch-id}
+          prop {:cites [{:spec "UK-FSA-Cook-Chill-Guidance"}] :value {:jurisdiction :us/fda} :confidence 0.95}
+          result (governor/check req {:actor-id "gov-1"} prop store)]
+      (is (false? (:hard? result)))
+      (is (some #(= (:rule %) :packaging-handoff-suspect) (:soft-violations result))))))

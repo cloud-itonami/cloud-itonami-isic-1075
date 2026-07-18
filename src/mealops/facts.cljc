@@ -323,3 +323,136 @@
   trusted as a pass."
   [material-lot]
   (true? (:material/supplier-verified? material-lot)))
+
+;; ─────────── Inbound Cross-Actor Handoff (this actor as RECEIVER) ───────────
+;;
+;; The "Cross-Actor Handoff" section above documents this actor's OUTBOUND
+;; `:handoff` (isic-1075 -> jsic-4721, dispatching side). This actor is
+;; ALSO the RECEIVING side of the identical `:handoff/*` wire shape for
+;; its own raw-material and packaging-material supply chain: an upstream
+;; supplier actor's own outbound `:coordinate-shipment`-equivalent
+;; proposal hands its `:handoff` value through unchanged, and this
+;; actor's `:material-lot` (raw material) / `:packaging-lot` (packaging
+;; material) records MAY optionally carry it under `:material/handoff` /
+;; `:packaging/handoff`. Documented in superproject
+;; `90-docs/adr/2607181500-isic1075-inbound-supply-chain-handoff.edn`.
+;; No new wire shape -- the SAME `:handoff/id`/`:handoff/source-actor`/
+;; `:handoff/batch-id`/`:handoff/product-type-id`/`:handoff/quantity-kg`/
+;; `:handoff/dispatched-at-iso` (+ optional cold-chain/unspsc/gtin) fields,
+;; reused as a receiving-side reference instead of a dispatching-side one.
+;;
+;;   {:material/lot-id "..."
+;;    :material/supplier-name "..."
+;;    :material/supplier-verified? true
+;;    :material/received-at-iso "..."
+;;    :material/handoff
+;;    {:handoff/id "..."
+;;     :handoff/source-actor "cloud-itonami-isic-1010"
+;;     :handoff/batch-id "..."
+;;     :handoff/product-type-id "fresh-poultry"
+;;     :handoff/quantity-kg 500.0
+;;     :handoff/dispatched-at-iso "..."}}
+
+(defn handoff-record-well-formed?
+  "Positive-sense convenience predicate: does `handoff` carry every
+  REQUIRED `:handoff/*` field (id/source-actor/batch-id/product-type-id/
+  quantity-kg/dispatched-at-iso) with a plausible value (quantity-kg a
+  positive number, the string fields non-blank)? Never validates the
+  OPTIONAL cold-chain/unspsc/gtin fields -- the same asymmetric-optional,
+  no-new-hard-check discipline the outbound handoff checks above apply.
+  Shared by both the raw-material (`:material/handoff`) and
+  packaging-material (`:packaging/handoff`) receiving-side checks below,
+  since both reuse the identical wire shape."
+  [handoff]
+  (boolean
+   (and (map? handoff)
+        (seq (:handoff/id handoff))
+        (seq (:handoff/source-actor handoff))
+        (seq (:handoff/batch-id handoff))
+        (some? (:handoff/product-type-id handoff))
+        (number? (:handoff/quantity-kg handoff))
+        (pos? (:handoff/quantity-kg handoff))
+        (seq (:handoff/dispatched-at-iso handoff)))))
+
+(def raw-material-source-actors
+  "This actor's ACTUAL, actually-registered immediate upstream
+  raw-material supplier roster, keyed by this actor's own meal
+  product-type id -- a supply-chain/provenance fact, not a food-safety
+  fact, so it carries none of the 'never invent a jurisdiction's
+  requirements' risk the rest of this namespace is careful about.
+
+  The immediate supplier for poultry/beef/fish/vegetarian raw material
+  is the PROCESSING actor one step downstream of the farm/vessel, not
+  the farm/vessel itself: `cloud-itonami-isic-0146` (poultry farm),
+  `cloud-itonami-isic-0141` (cattle ranch), and `cloud-itonami-isic-0113`
+  (vegetable/root-crop farm) have NO shipment/dispatch-equivalent
+  proposal op in their own closed operation allowlist at all (back-office
+  farm-record coordination only -- see each actor's own `governor.cljc`
+  `known-ops`), so they cannot originate a `:handoff` for this actor to
+  receive directly; deliberately absent here rather than invented. See
+  ADR-2607181500 for the fuller inventory (including the isic-0311/0312/
+  0321/0322 fishery/aquaculture actors that exist upstream of isic-1020
+  but are also out of THIS actor's direct-supplier scope)."
+  {:meal/cook-chill-poultry #{"cloud-itonami-isic-1010"}
+   :meal/cook-chill-beef #{"cloud-itonami-isic-1010"}
+   :meal/cook-freeze-fish #{"cloud-itonami-isic-1020"}
+   :meal/cook-chill-vegetarian #{"cloud-itonami-isic-1030"}})
+
+(defn material-handoff-source-actor-known?
+  "Positive-sense convenience predicate: for `product-type-id`, is
+  `source-actor` one of this actor's actually-registered immediate
+  upstream raw-material suppliers (`raw-material-source-actors`)? A
+  product type with no registered roster entry, or a nil source-actor,
+  always returns false -- absence is never silently treated as valid,
+  the same discipline `material-lot-supplier-verified?` applies to a
+  missing verification flag."
+  [product-type-id source-actor]
+  (boolean
+   (and source-actor
+        (contains? (get raw-material-source-actors product-type-id #{}) source-actor))))
+
+;; ─────────── Packaging-Material Lot / Supplier Verification ───────────
+;;
+;; Mirrors the raw-material-lot section above, but backing the
+;; `:packaging-seal-check` evidence-checklist item (vacuum/MAP packaging
+;; film integrity) instead of `:raw-material-intake-record`. A production
+;; batch's `:packaging-lot` record carries which lot, from which declared
+;; supplier, whether this actor has independently VERIFIED that supplier,
+;; when it was received, and (optionally) the upstream packaging
+;; supplier's own outbound `:handoff` record.
+;;
+;;   {:packaging/lot-id "..."
+;;    :packaging/supplier-name "..."
+;;    :packaging/supplier-verified? true
+;;    :packaging/received-at-iso "..."
+;;    :packaging/handoff {:handoff/id "..." ...}}
+
+(def packaging-lot-keys
+  "The canonical key shape of a packaging-material intake lot record.
+  Not a reference catalog -- lot data is per-batch instance data that
+  lives in the store, this is just the documented shape."
+  #{:packaging/lot-id :packaging/supplier-name :packaging/supplier-verified?
+    :packaging/received-at-iso})
+
+(defn packaging-lot-supplier-verified?
+  "Positive-sense convenience predicate: does `packaging-lot` explicitly
+  declare its supplier as verified? Missing, false, or nil are all
+  treated as NOT verified, mirroring `material-lot-supplier-verified?`."
+  [packaging-lot]
+  (true? (:packaging/supplier-verified? packaging-lot)))
+
+(def packaging-source-actors
+  "This actor's ACTUAL, actually-registered immediate upstream
+  packaging-material supplier roster: `cloud-itonami-isic-1702`
+  (corrugated shipping cases) and `cloud-itonami-isic-2220` (vacuum/MAP
+  packaging film) -- both `:implemented`, not category-keyed like
+  `raw-material-source-actors` since every product type uses the same
+  packaging-supplier pool."
+  #{"cloud-itonami-isic-1702" "cloud-itonami-isic-2220"})
+
+(defn packaging-handoff-source-actor-known?
+  "Positive-sense convenience predicate: is `source-actor` one of this
+  actor's actually-registered packaging-material suppliers
+  (`packaging-source-actors`)? A nil source-actor always returns false."
+  [source-actor]
+  (boolean (contains? packaging-source-actors source-actor)))

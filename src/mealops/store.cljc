@@ -30,7 +30,15 @@
     - :material-lot raw-material intake lot record (see
       `mealops.facts/material-lot-keys`) backing the
       `:raw-material-intake-record` evidence-checklist item with real
-      supplier-verification data
+      supplier-verification data. MAY carry an optional
+      `:material/handoff` (the upstream supplier actor's own outbound
+      `:handoff` record, passed through unchanged -- see
+      `mealops.facts`'s Inbound Cross-Actor Handoff section)
+    - :packaging-lot packaging-material intake lot record (see
+      `mealops.facts/packaging-lot-keys`) backing the
+      `:packaging-seal-check` evidence-checklist item. MAY carry an
+      optional `:packaging/handoff` (the upstream packaging supplier
+      actor's own outbound `:handoff` record, passed through unchanged)
     - :safety-concern-raised? / :safety-concern-resolved? food-safety flag
     - :processed? true once a `:log-production-batch` proposal commits
     - :shipment-finalized? true once a `:coordinate-shipment` proposal commits
