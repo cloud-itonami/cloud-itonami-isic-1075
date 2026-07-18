@@ -202,3 +202,84 @@
 
   (testing "nil material-lot fails"
     (is (false? (facts/material-lot-supplier-verified? nil)))))
+
+;; ──────────── Inbound Cross-Actor Handoff (this actor as RECEIVER) ────────────
+
+(def ^:private well-formed-handoff
+  {:handoff/id "h-1"
+   :handoff/source-actor "cloud-itonami-isic-1010"
+   :handoff/batch-id "meat-batch-1"
+   :handoff/product-type-id "fresh-poultry"
+   :handoff/quantity-kg 500.0
+   :handoff/dispatched-at-iso "2026-07-17T00:00:00Z"})
+
+(deftest handoff-record-well-formed-test
+  (testing "complete handoff passes"
+    (is (true? (facts/handoff-record-well-formed? well-formed-handoff))))
+
+  (testing "missing :handoff/quantity-kg fails"
+    (is (false? (facts/handoff-record-well-formed? (dissoc well-formed-handoff :handoff/quantity-kg)))))
+
+  (testing "non-positive quantity fails"
+    (is (false? (facts/handoff-record-well-formed? (assoc well-formed-handoff :handoff/quantity-kg 0))))
+    (is (false? (facts/handoff-record-well-formed? (assoc well-formed-handoff :handoff/quantity-kg -5.0)))))
+
+  (testing "blank source-actor fails"
+    (is (false? (facts/handoff-record-well-formed? (assoc well-formed-handoff :handoff/source-actor "")))))
+
+  (testing "missing :handoff/dispatched-at-iso fails"
+    (is (false? (facts/handoff-record-well-formed? (dissoc well-formed-handoff :handoff/dispatched-at-iso)))))
+
+  (testing "nil handoff fails"
+    (is (false? (facts/handoff-record-well-formed? nil))))
+
+  (testing "non-map handoff fails"
+    (is (false? (facts/handoff-record-well-formed? "not-a-map")))))
+
+(deftest material-handoff-source-actor-known-test
+  (testing "isic-1010 is the known supplier for poultry and beef"
+    (is (true? (facts/material-handoff-source-actor-known? :meal/cook-chill-poultry "cloud-itonami-isic-1010")))
+    (is (true? (facts/material-handoff-source-actor-known? :meal/cook-chill-beef "cloud-itonami-isic-1010"))))
+
+  (testing "isic-1020 is the known supplier for fish"
+    (is (true? (facts/material-handoff-source-actor-known? :meal/cook-freeze-fish "cloud-itonami-isic-1020"))))
+
+  (testing "isic-1030 is the known supplier for vegetarian"
+    (is (true? (facts/material-handoff-source-actor-known? :meal/cook-chill-vegetarian "cloud-itonami-isic-1030"))))
+
+  (testing "a mismatched source-actor for the category fails"
+    (is (false? (facts/material-handoff-source-actor-known? :meal/cook-chill-poultry "cloud-itonami-isic-1020"))))
+
+  (testing "an unregistered product-type-id fails"
+    (is (false? (facts/material-handoff-source-actor-known? :meal/nonexistent "cloud-itonami-isic-1010"))))
+
+  (testing "nil source-actor fails"
+    (is (false? (facts/material-handoff-source-actor-known? :meal/cook-chill-poultry nil)))))
+
+;; ──────────────── Packaging-Material Lot / Supplier Verification ────────────────
+
+(deftest packaging-lot-supplier-verified-test
+  (testing "explicit true passes"
+    (is (true? (facts/packaging-lot-supplier-verified?
+                {:packaging/lot-id "plot-1" :packaging/supplier-verified? true}))))
+
+  (testing "explicit false fails"
+    (is (false? (facts/packaging-lot-supplier-verified?
+                 {:packaging/lot-id "plot-1" :packaging/supplier-verified? false}))))
+
+  (testing "missing key fails (never silently trusted)"
+    (is (false? (facts/packaging-lot-supplier-verified? {:packaging/lot-id "plot-1"}))))
+
+  (testing "nil packaging-lot fails"
+    (is (false? (facts/packaging-lot-supplier-verified? nil)))))
+
+(deftest packaging-handoff-source-actor-known-test
+  (testing "isic-1702 (corrugated cases) and isic-2220 (packaging film) are both known"
+    (is (true? (facts/packaging-handoff-source-actor-known? "cloud-itonami-isic-1702")))
+    (is (true? (facts/packaging-handoff-source-actor-known? "cloud-itonami-isic-2220"))))
+
+  (testing "an unregistered actor fails"
+    (is (false? (facts/packaging-handoff-source-actor-known? "cloud-itonami-isic-9999"))))
+
+  (testing "nil source-actor fails"
+    (is (false? (facts/packaging-handoff-source-actor-known? nil)))))

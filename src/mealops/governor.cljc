@@ -87,6 +87,15 @@
       supplier is not explicitly declared verified (`:supplier-not-
       verified` -- a raw-material-traceability concern, not a hard
       hold; see `mealops.facts`'s material-lot section)
+    - Raw-material lot carries an optional inbound `:material/handoff`
+      that is malformed or declares a source-actor this actor does not
+      recognize as a registered upstream supplier for that raw-material
+      category (`:rawmat-handoff-suspect` -- see `mealops.facts`'s
+      \"Inbound Cross-Actor Handoff\" section)
+    - Packaging-material lot carries an optional inbound
+      `:packaging/handoff` that is malformed or declares an unrecognized
+      packaging-supplier source-actor (`:packaging-handoff-suspect`,
+      same discipline as `:rawmat-handoff-suspect`)
 
   This design mirrors `chocops.governor` (ISIC 1073) and `bakeops.governor`
   but specializes on prepared-meals/ready-dish-specific concerns: cook-
@@ -500,6 +509,62 @@
           :detail (str subject " の原材料ロット(" (get-in b [:material-lot :material/lot-id])
                       ")のサプライヤーが検証済みと明示されていない -- holdではなく人間へのescalateが必要")}]))))
 
+;; ────────── Inbound Cross-Actor Handoff (upstream supplier -> isic-1075) ──────────
+;;
+;; This actor is the RECEIVING side of the same `:handoff/*` wire shape
+;; its own outbound `:coordinate-shipment` uses above -- see
+;; `mealops.facts`'s "Inbound Cross-Actor Handoff" section. Both checks
+;; below are SOFT, mirroring `supplier-not-verified-escalation`: the
+;; upstream actor's `:handoff` attachment is entirely OPTIONAL, so its
+;; absence is never itself a concern, but a PRESENT-but-suspect one
+;; (malformed, or from a source-actor this actor does not recognize as a
+;; registered supplier) is real supply-chain-traceability risk that
+;; always routes to human escalation instead of a silent pass.
+
+(defn- rawmat-handoff-suspect-escalation
+  "SOFT signal, never a hard hold: for `:log-production-batch`, when the
+  batch's `:material-lot` carries an optional `:material/handoff`
+  record, verify it is both well-formed
+  (`facts/handoff-record-well-formed?`) and declares a
+  `:handoff/source-actor` this actor actually recognizes as a registered
+  upstream supplier for the batch's own raw-material category
+  (`facts/material-handoff-source-actor-known?`)."
+  [{:keys [op subject]} st]
+  (when (= op :log-production-batch)
+    (let [b (store/production-batch st subject)
+          handoff (get-in b [:material-lot :material/handoff])]
+      (when (map? handoff)
+        (when-not (and (facts/handoff-record-well-formed? handoff)
+                       (facts/material-handoff-source-actor-known?
+                        (:product-type b) (:handoff/source-actor handoff)))
+          [{:rule :rawmat-handoff-suspect
+            :detail (str subject " の原材料ロットに添付された:handoff(source-actor="
+                        (pr-str (:handoff/source-actor handoff))
+                        ")が、この製品カテゴリの登録済み上流サプライヤーと一致しないか、"
+                        "必須フィールドを欠く -- holdではなく人間へのescalateが必要")}])))))
+
+(defn- packaging-handoff-suspect-escalation
+  "SOFT signal, mirroring `rawmat-handoff-suspect-escalation` for the
+  `:packaging-seal-check` evidence-checklist item instead of
+  `:raw-material-intake-record`: when the batch's optional
+  `:packaging-lot` carries a `:packaging/handoff` record, verify it is
+  well-formed and its source-actor is a registered packaging supplier
+  (`facts/packaging-handoff-source-actor-known?` -- isic-1702 corrugated
+  cases / isic-2220 vacuum-MAP film)."
+  [{:keys [op subject]} st]
+  (when (= op :log-production-batch)
+    (let [b (store/production-batch st subject)
+          handoff (get-in b [:packaging-lot :packaging/handoff])]
+      (when (map? handoff)
+        (when-not (and (facts/handoff-record-well-formed? handoff)
+                       (facts/packaging-handoff-source-actor-known?
+                        (:handoff/source-actor handoff)))
+          [{:rule :packaging-handoff-suspect
+            :detail (str subject " の包装資材ロットに添付された:handoff(source-actor="
+                        (pr-str (:handoff/source-actor handoff))
+                        ")が、登録済み包装資材サプライヤー(isic-1702/isic-2220)と一致しないか、"
+                        "必須フィールドを欠く -- holdではなく人間へのescalateが必要")}])))))
+
 (defn check
   "Censors a MealOpsAdvisor proposal against the Governor rules.
   Returns {:ok? bool :violations [..] :soft-violations [..]
@@ -511,13 +576,13 @@
   whether a human must sign off.
 
   `:violations` (`hard`) are un-overridable HOLDs. `:soft-violations`
-  are additional, independently-detected concerns (currently only
-  `:supplier-not-verified`) that are NOT grounds for a hold but DO force
-  `:escalate?` true even when every hard check passes and confidence is
-  high and the op is not otherwise in `always-escalate-ops` -- same
-  effect as low confidence, kept in a separate key so `:violations`
-  keeps meaning exactly what it always has (a hard, un-overridable
-  hold reason)."
+  are additional, independently-detected concerns (`:supplier-not-
+  verified`, `:rawmat-handoff-suspect`, `:packaging-handoff-suspect`)
+  that are NOT grounds for a hold but DO force `:escalate?` true even
+  when every hard check passes and confidence is high and the op is not
+  otherwise in `always-escalate-ops` -- same effect as low confidence,
+  kept in a separate key so `:violations` keeps meaning exactly what it
+  always has (a hard, un-overridable hold reason)."
   [request _context proposal st]
   (let [hard (into []
                    (concat (op-not-allowed-violations request proposal)
@@ -543,7 +608,9 @@
                            (handoff-missing-violations request proposal)
                            (handoff-cold-chain-window-exceeds-product-safety-margin-violations request proposal)
                            (handoff-batch-not-registered-violations request proposal st)))
-        soft (into [] (supplier-not-verified-escalation request st))
+        soft (into [] (concat (supplier-not-verified-escalation request st)
+                              (rawmat-handoff-suspect-escalation request st)
+                              (packaging-handoff-suspect-escalation request st)))
         conf (:confidence proposal 0.0)
         low? (< conf confidence-floor)
         actuation? (boolean (high-stakes (:op request)))
