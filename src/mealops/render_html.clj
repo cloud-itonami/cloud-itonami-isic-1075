@@ -77,7 +77,7 @@
   Usage: `clojure -M:render-html [out-file]`
   (default `docs/samples/operator-console.html`)."
   (:require [clojure.edn :as edn]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [jp-go-dds.skin]
             [mealops.facts :as facts]
             [mealops.governor :as governor]
