@@ -74,7 +74,7 @@
   the page so iteration order can never leak into the bytes. Two
   consecutive builds are byte-identical.
 
-  Usage: `clojure -M:render-html [out-file]`
+  Usage: `kbb -M:render-html [out-file]`
   (default `docs/samples/operator-console.html`)."
   (:require [clojure.edn :as edn]
             [kotoba.lang.text :as str]
@@ -836,7 +836,7 @@
      " &middot; <code>" (esc (:itonami.blueprint/id bp)) "</code>"
      " &middot; ISIC Rev.5 <span class=\"badge\">" (esc (:itonami.blueprint/isic-rev5 bp)) "</span>"
      " &middot; governor <code>" (esc (kname (:itonami.blueprint/governor bp))) "</code></p>\n"
-     "  <p>このページは手書きされていない。<code>clojure -M:render-html</code> が "
+     "  <p>このページは手書きされていない。<code>kbb -M:render-html</code> が "
      "<code>mealops.operation/run-operation</code> → <code>mealops.governor/check</code> → "
      "<code>mealops.store</code> を実際に走らせ、その実行が生成した値だけを描画している。"
      "数値・判定・違反理由はすべて実行結果由来で、リテラルは一つも無い。</p>\n"

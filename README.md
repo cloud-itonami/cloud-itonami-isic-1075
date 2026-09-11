@@ -91,13 +91,13 @@ Any proposal for an operation outside this allowlist — most importantly anythi
 
 ```bash
 # Run full test suite
-clojure -M:test
+kbb -M:test
 
 # Check code quality
-clojure -M:lint
+kbb -M:lint
 
 # Run demo simulation
-clojure -M:run
+kbb -M:run
 ```
 
 ## Standalone Use

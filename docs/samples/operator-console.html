@@ -2476,7 +2476,7 @@ img,svg { max-width: 100%; height: auto; }
 <main class="container">
   <h1>調理済み食品製造コーディネーション — オペレーターコンソール</h1>
   <p class="subtitle">Prepared Meals and Dishes Manufacturing Coordination &middot; <code>cloud-itonami-1075</code> &middot; ISIC Rev.5 <span class="badge">1075</span> &middot; governor <code>mealops-governor</code></p>
-  <p>このページは手書きされていない。<code>clojure -M:render-html</code> が <code>mealops.operation/run-operation</code> → <code>mealops.governor/check</code> → <code>mealops.store</code> を実際に走らせ、その実行が生成した値だけを描画している。数値・判定・違反理由はすべて実行結果由来で、リテラルは一つも無い。</p>
+  <p>このページは手書きされていない。<code>kbb -M:render-html</code> が <code>mealops.operation/run-operation</code> → <code>mealops.governor/check</code> → <code>mealops.store</code> を実際に走らせ、その実行が生成した値だけを描画している。数値・判定・違反理由はすべて実行結果由来で、リテラルは一つも無い。</p>
   <section class="card">
     <h2>この実行の結果（1 行 = 実際に走った 1 提案）</h2>
     <p class="muted">Every row below is one real call to <code>mealops.operation/run-operation</code>. <strong>Disposition is read off the Governor's own <code>:hard?</code> / <code>:escalate?</code> verdict</strong>, never off the ledger fact's type — see the classification note under the next table for why that distinction matters here.</p>
