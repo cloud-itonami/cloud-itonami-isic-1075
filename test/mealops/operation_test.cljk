@@ -1,5 +1,5 @@
 (ns mealops.operation-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [mealops.operation :as operation]
             [mealops.governor :as governor]))
 
