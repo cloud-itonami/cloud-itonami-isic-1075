@@ -1,5 +1,5 @@
 (ns mealops.facts-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [mealops.facts :as facts]))
 
 ;; ──────────────────────── Product Type Lookups ──────────────────────
