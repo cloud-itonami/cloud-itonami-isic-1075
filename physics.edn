@@ -1,0 +1,22 @@
+{:physics/schema "itonami.physical-ai.spec.v1"
+ :repo "cloud-itonami/cloud-itonami-isic-1075"
+ :cases
+ [{:id :cook-chill-tray
+   :kind :thermal
+   :procedure "a gastronorm tray of cooked stew goes from the cook line onto a wire rack in the blast chiller for 90 min, cooled from top and bottom; half-depth model, the mid-depth centre is the last to cool"
+   :params {:conductivity-w-mk 0.50 :density-kg-m3 1050.0 :specific-heat-j-kgk 3600.0
+            :t0-c 75.0 :t-hot-c -2.0 :h-front-w-m2k 30.0 :h-back-w-m2k 0.0 :t-back-ambient-c -2.0
+            :threshold-c 3.0 :duration-s 5400.0 :nodes 21}
+   :sweep {:param :thickness-m :values [0.010 0.015 0.020 0.025 0.0325]}
+   :quantity :final-back-c
+   :limit {:max 3.0 :basis "estimate: cook-chill practice (UK DH 1989 cook-chill guidelines) targets 0-3 C within 90 min of cooking; confirm the plant's HACCP critical limit"}
+   :boundary {:lo 0.005 :hi 0.10}}
+  {:id :meal-tray-lift
+   :kind :manipulator
+   :procedure "arm lifts a filled gastronorm tray from the depositor onto the blast-chiller trolley"
+   :params {:l1-m 0.60 :l2-m 0.55 :m1-kg 8.0 :m2-kg 6.0
+            :from [0.70 0.0] :to [0.25 0.60] :duration-s 2.0 :steps 400}
+   :sweep {:param :payload-kg :values [3.0 6.0 9.0 12.0 15.0]}
+   :quantity :peak-tau1-nm
+   :limit {:max 150.0 :basis "estimate: continuous shoulder torque of a washdown-rated ~15 kg food-handling arm"}
+   :boundary {:lo 0.5 :hi 60.0}}]}
