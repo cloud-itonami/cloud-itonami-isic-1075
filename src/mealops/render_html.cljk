@@ -76,7 +76,7 @@
 
   Usage: `kbb -M:render-html [out-file]`
   (default `docs/samples/operator-console.html`)."
-  (:require [kotoba.lang.edn :as edn]
+  (:require [kotoba.io :as kio] [kotoba.lang.edn :as edn]
             [kotoba.lang.text :as str]
             [jp-go-dds.skin]
             [mealops.facts :as facts]
@@ -1150,7 +1150,7 @@
         result (run-scenario!)
         {:keys [hard rules soft-rules]} (assert-real-holds! result)
         html (render result)]
-    (when-let [p (.getParentFile (java.io.File. ^String out))] (.mkdirs p))
+    (when-let [p (kio/parent-file (kio/file ^String out))] (kio/mkdirs p))
     (spit out html)
     (println "wrote" out
              (str "(" (count (store/audit-trail (:db result))) " ledger facts, "
