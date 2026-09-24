@@ -7,7 +7,7 @@
   safety (HACCP) compliance checks -- the Governor calls these to
   independently validate proposals; the advisor's confidence is never
   sufficient on its own."
-  (:require [clojure.set :as set]))
+  (:require [kotoba.lang.coll :as set]))
 
 (def product-types
   "Valid prepared-meal/ready-dish product categories and their safe
